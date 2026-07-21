@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Delivery Max — Panel</title>
+<style>
+  :root{
+    --bg:#f1f5f9; --card:#ffffff; --tx:#0f172a; --mut:#64748b;
+    --acc:#f0a828; --acc2:#b3730a; --line:rgba(0,0,0,.10); --ok:#15803d; --err:#dc2626;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  body{margin:0;background:var(--bg);color:var(--tx);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+  .hide{display:none!important}
+
+  /* LOGIN */
+  #login{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px}
+  .brand{font-size:11px;letter-spacing:.25em;text-transform:uppercase;color:var(--acc2);margin-bottom:8px}
+  h1{font-size:24px;margin:0 0 4px}
+  .sub{font-size:13px;color:var(--mut);margin:0 0 28px}
+  .dots{display:flex;gap:12px;margin-bottom:26px}
+  .dot{width:16px;height:16px;border-radius:50%;border:2px solid #cbd5e1}
+  .dot.on{background:var(--acc);border-color:var(--acc)}
+  .pad{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;width:100%;max-width:280px}
+  .key{height:64px;border-radius:16px;background:var(--card);border:1px solid var(--line);
+    font-size:20px;font-weight:600;color:var(--tx);cursor:pointer}
+  .key:active{background:#fef3c7}
+  .key.sm{font-size:14px;font-weight:500;color:var(--mut)}
+  #msg{font-size:13px;color:var(--err);height:20px;margin-bottom:10px;text-align:center}
+
+  /* PANEL */
+  header{background:var(--card);border-bottom:1px solid var(--line);padding:20px 20px 14px;
+    display:flex;justify-content:space-between;align-items:flex-start}
+  header h2{margin:0;font-size:20px}
+  .who{font-size:12px;color:var(--mut);margin-top:2px}
+  .iconbtn{background:none;border:none;color:var(--mut);font-size:13px;cursor:pointer;padding:6px}
+  nav{display:flex;gap:6px;padding:14px 20px 8px;position:sticky;top:0;background:var(--bg);z-index:5}
+  .tab{flex:1;padding:10px 4px;border-radius:12px;border:1px solid transparent;background:none;
+    font-size:12px;font-weight:500;color:var(--mut);cursor:pointer}
+  .tab.on{background:#fef3c7;color:var(--acc2);border-color:#fcd34d}
+  main{padding:8px 20px 60px}
+  .row{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+  .count{font-size:12px;color:var(--mut)}
+  .btn{background:var(--acc);color:#1a1d21;border:none;border-radius:9px;padding:8px 13px;
+    font-size:12px;font-weight:700;cursor:pointer}
+  .btn.block{width:100%;padding:12px;font-size:14px;border-radius:10px;margin-top:6px}
+  .btn[disabled]{opacity:.35}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 16px;
+    margin-bottom:8px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+  .card .flex{display:flex;justify-content:space-between;align-items:center}
+  .name{font-size:14px;font-weight:600}
+  .meta{font-size:12px;color:var(--mut);margin-top:2px}
+  .del{background:none;border:none;color:#cbd5e1;font-size:17px;cursor:pointer;padding:4px}
+  .del:active{color:var(--err)}
+  .tarifa{width:92px;background:none;border:none;text-align:right;font-size:14px;font-weight:700;
+    color:var(--acc2);outline:none}
+  .tarifa:disabled{color:#94a3b8}
+  .hint{font-size:11px;color:var(--mut);margin:0 0 12px}
+  .pill{font-size:11px;font-weight:600;color:var(--acc2);background:none;border:none;padding:5px;cursor:pointer}
+  .pill[disabled]{color:#cbd5e1}
+  .perms{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+  .perm{font-size:11px;text-align:left;padding:8px 10px;border-radius:9px;border:1px solid var(--line);
+    background:none;color:var(--mut);cursor:pointer}
+  .perm.on{background:#fef3c7;border-color:#fcd34d;color:var(--acc2)}
+  .pinbox{width:96px;text-align:center;font-size:15px;font-weight:700;letter-spacing:.25em;
+    color:var(--acc2);border:1px solid var(--line);border-radius:9px;padding:8px;outline:none}
+
+  /* MODAL */
+  #modal{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:flex-end;
+    justify-content:center;z-index:50}
+  .sheet{background:var(--card);width:100%;max-width:440px;border-radius:18px 18px 0 0;padding:20px 20px 28px;
+    max-height:88vh;overflow:auto}
+  .sheet h3{margin:0 0 16px;font-size:15px}
+  label{display:block;margin-bottom:12px}
+  label span{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin-bottom:6px}
+  input,select{width:100%;padding:11px;border:1px solid #cbd5e1;border-radius:9px;font-size:14px;
+    background:#fff;color:var(--tx);outline:none;font-family:inherit}
+  input:focus,select:focus{border-color:var(--acc)}
+  .err{background:#fee2e2;border:1px solid #fecaca;color:#991b1b;font-size:12px;
+    padding:10px 14px;border-radius:10px;margin:12px 20px 0}
+  .empty{text-align:center;color:var(--mut);font-size:13px;padding:36px 0}
+</style>
+</head>
+<body>
+
+<!-- ============ LOGIN ============ -->
+<div id="login">
+  <div class="brand">Delivery Max</div>
+  <h1>Ingresá tu PIN</h1>
+  <p class="sub">4 dígitos · lo administra el Administrador</p>
+  <div class="dots" id="dots"></div>
+  <div id="msg"></div>
+  <div class="pad" id="pad"></div>
+</div>
+
+<!-- ============ PANEL ============ -->
+<div id="panel" class="hide">
+  <header>
+    <div>
+      <div class="brand">Panel Max</div>
+      <h2>Delivery Max</h2>
+      <div class="who" id="who"></div>
+    </div>
+    <div>
+      <button class="iconbtn" onclick="cargarTodo()">↻</button>
+      <button class="iconbtn" onclick="salir()">Salir</button>
+    </div>
+  </header>
+  <div id="error" class="err hide"></div>
+  <nav id="nav"></nav>
+  <main id="main"></main>
+</div>
+
+<div id="modal" class="hide"></div>
+
+<script>
+/* ====== CONFIG ====== */
+const API_KEY = "AIzaSyA93I_0zQAYn9KpcUq-VUYFI3uHTsAHDMk";
+const DB = "https://max-delivery1-default-rtdb.firebaseio.com";
+
+/* ====== DATOS ====== */
+let token=null, user=null, tab="comercios";
+let zonas={}, comercios={}, cadetes={}, operadores={};
+let pinOpen=null, permOpen=null;
+
+async function auth(){
+  if(token) return token;
+  const r = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${API_KEY}`,
+    {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({returnSecureToken:true})});
+  if(!r.ok) throw new Error("No se pudo conectar. Revisá que el acceso Anónimo esté activado en Firebase Authentication.");
+  token = (await r.json()).idToken;
+  return token;
+}
+async function get(p){ const t=await auth(); const r=await fetch(`${DB}/${p}.json?auth=${t}`);
+  if(!r.ok) throw new Error("Error leyendo datos"); return r.json(); }
+async function put(p,d){ const t=await auth(); const r=await fetch(`${DB}/${p}.json?auth=${t}`,{method:"PUT",body:JSON.stringify(d)});
+  if(!r.ok) throw new Error("Error guardando"); return r.json(); }
+async function patch(p,d){ const t=await auth(); const r=await fetch(`${DB}/${p}.json?auth=${t}`,{method:"PATCH",body:JSON.stringify(d)});
+  if(!r.ok) throw new Error("Error actualizando"); return r.json(); }
+async function del(p){ const t=await auth(); const r=await fetch(`${DB}/${p}.json?auth=${t}`,{method:"DELETE"});
+  if(!r.ok) throw new Error("Error borrando"); return r.json(); }
+
+/* ====== LOGIN ====== */
+let pin="";
+const RANGOS={admin:"Administrador",supervisor:"Supervisor",operador:"Operador base"};
+
+function pintarDots(){
+  document.getElementById("dots").innerHTML =
+    [0,1,2,3].map(i=>`<div class="dot ${i<pin.length?"on":""}"></div>`).join("");
+}
+function armarPad(){
+  const keys=[1,2,3,4,5,6,7,8,9,"",0,"←"];
+  document.getElementById("pad").innerHTML = keys.map(k=>
+    k===""? `<div></div>` :
+    `<button class="key ${k==="←"?"sm":""}" onclick="tecla('${k}')">${k==="←"?"Borrar":k}</button>`).join("");
+}
+function tecla(k){
+  document.getElementById("msg").textContent="";
+  if(k==="←"){ pin=pin.slice(0,-1); }
+  else if(pin.length<4){ pin+=k; }
+  pintarDots();
+  if(pin.length===4) entrar();
+}
+async function entrar(){
+  const msg=document.getElementById("msg");
+  msg.style.color="#64748b"; msg.textContent="Verificando...";
+  try{
+    const ops = await get("operadores") || {};
+    const hit = Object.entries(ops).find(([,o])=>String(o.pin)===pin && o.activo!==false);
+    if(!hit){ msg.style.color="#dc2626"; msg.textContent="PIN incorrecto"; pin=""; pintarDots(); return; }
+    user={id:hit[0],...hit[1]}; msg.textContent="";
+    document.getElementById("login").classList.add("hide");
+    document.getElementById("panel").classList.remove("hide");
+    document.getElementById("who").textContent = `${user.nombre} · ${RANGOS[user.rango]||user.rango}`;
+    pin=""; pintarDots();
+    await cargarTodo();
+  }catch(e){ msg.style.color="#dc2626"; msg.textContent=e.message; pin=""; pintarDots(); }
+}
+function salir(){
+  user=null;
+  document.getElementById("panel").classList.add("hide");
+  document.getElementById("login").classList.remove("hide");
+}
+
+/* ====== PERMISOS ====== */
+const esAdmin = ()=> user?.rango==="admin";
+const esSup   = ()=> esAdmin() || user?.rango==="supervisor";
+function permOp(a){
+  if(esAdmin()) return true;
+  if(user?.rango==="supervisor") return a!=="editarTarifa" && a!=="editarPin";
+  const p=user?.permisosCustom||{};
+  if(a==="crearComercios"||a==="crearCadetes") return p[a]!==false;
+  if(a==="borrarComercios"||a==="borrarCadetes") return p[a]===true;
+  return false;
+}
+
+/* ====== CARGA ====== */
+function mostrarError(m){
+  const e=document.getElementById("error");
+  if(!m){ e.classList.add("hide"); return; }
+  e.textContent=m; e.classList.remove("hide");
+}
+async function cargarTodo(){
+  mostrarError("");
+  try{
+    const [z,c,cd,op] = await Promise.all([get("zonas"),get("comercios"),get("cadetes"),get("operadores")]);
+    zonas=z||{}; comercios=c||{}; cadetes=cd||{}; operadores=op||{};
+    render();
+  }catch(e){ mostrarError(e.message); }
+}
+
+/* ====== RENDER ====== */
+function render(){
+  const tabs=[["comercios","Comercios"],["zonas","Zonas"],["cadetes","Cadetes"]];
+  if(esSup()) tabs.push(["operadores","Operadores"]);
+  document.getElementById("nav").innerHTML = tabs.map(([k,l])=>
+    `<button class="tab ${tab===k?"on":""}" onclick="setTab('${k}')">${l}</button>`).join("");
+  const m=document.getElementById("main");
+  if(tab==="comercios") m.innerHTML=vistaComercios();
+  if(tab==="zonas")     m.innerHTML=vistaZonas();
+  if(tab==="cadetes")   m.innerHTML=vistaCadetes();
+  if(tab==="operadores")m.innerHTML=vistaOperadores();
+}
+function setTab(t){ tab=t; pinOpen=null; permOpen=null; render(); }
+const esc = s => String(s??"").replace(/[<>&"]/g,c=>({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;"}[c]));
+
+function vistaComercios(){
+  const e=Object.entries(comercios);
+  return `<div class="row"><span class="count">${e.length} comercios</span>
+    ${permOp("crearComercios")?`<button class="btn" onclick="abrir('comercio')">+ Nuevo</button>`:""}</div>`
+    + (e.length? e.map(([id,c])=>`<div class="card"><div class="flex">
+        <div><div class="name">${esc(c.nombre)}</div><div class="meta">${esc(c.tipo)} · ${esc(c.ubicacion)}</div></div>
+        ${permOp("borrarComercios")?`<button class="del" onclick="borrar('comercios','${id}')">🗑</button>`:""}
+      </div></div>`).join("") : `<div class="empty">Sin comercios todavía.</div>`);
+}
+function vistaZonas(){
+  const e=Object.entries(zonas);
+  return `<div class="row"><span class="count">${e.length} zonas</span>
+    ${esSup()?`<button class="btn" onclick="abrir('zona')">+ Nueva</button>`:""}</div>`
+    + (esAdmin()? `<p class="hint">Cambiá la tarifa y tocá afuera para guardar.</p>`
+                : `<p class="hint">Solo el Administrador modifica tarifas.</p>`)
+    + e.map(([id,z])=>`<div class="card"><div class="flex">
+        <div class="name">${esc(z.nombre)}</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="color:#94a3b8">$</span>
+          <input class="tarifa" type="number" value="${z.tarifa}" ${esAdmin()?"":"disabled"}
+            onchange="setTarifa('${id}',this.value)">
+          ${esAdmin()?`<button class="del" onclick="borrar('zonas','${id}')">🗑</button>`:""}
+        </div></div></div>`).join("");
+}
+function vistaCadetes(){
+  const e=Object.entries(cadetes);
+  return `<div class="row"><span class="count">${e.length} cadetes</span>
+    ${permOp("crearCadetes")?`<button class="btn" onclick="abrir('cadete')">+ Nuevo</button>`:""}</div>`
+    + (e.length? e.map(([id,c])=>`<div class="card"><div class="flex">
+        <div><div class="name">${esc(c.nombre)}</div>
+        <div class="meta" style="color:${c.estado==="en_ruta"?"#64748b":"#15803d"}">● ${c.estado==="en_ruta"?"En ruta":"Disponible"}</div></div>
+        ${permOp("borrarCadetes")?`<button class="del" onclick="borrar('cadetes','${id}')">🗑</button>`:""}
+      </div></div>`).join("") : `<div class="empty">Sin cadetes todavía.</div>`);
+}
+function vistaOperadores(){
+  const e=Object.entries(operadores);
+  return `<div class="row"><span class="count">${e.length} cuentas</span>
+    <button class="btn" onclick="abrir('operador')">+ Nueva cuenta</button></div>`
+    + e.map(([id,o])=>{
+      const perms=[["crearComercios","Crear comercios"],["crearCadetes","Crear cadetes"],
+                   ["borrarComercios","Borrar comercios"],["borrarCadetes","Borrar cadetes"]];
+      return `<div class="card">
+        <div class="flex">
+          <div><div class="name">${esc(o.nombre)}</div><div class="meta">${RANGOS[o.rango]||o.rango}</div></div>
+          <div>
+            <button class="pill" ${esAdmin()?"":"disabled"} onclick="togglePin('${id}')">PIN</button>
+            ${o.rango==="operador"?`<button class="pill" onclick="togglePerm('${id}')">Permisos</button>`:""}
+            ${esAdmin()&&id!==user.id?`<button class="del" onclick="borrar('operadores','${id}')">🗑</button>`:""}
+          </div>
+        </div>
+        ${pinOpen===id&&esAdmin()?`<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line);display:flex;gap:10px;align-items:center">
+          <input class="pinbox" maxlength="4" inputmode="numeric" value="${esc(o.pin||"")}" onchange="setPin('${id}',this.value)">
+          <span class="meta">Cambiá y tocá afuera para guardar</span></div>`:""}
+        ${permOpen===id&&o.rango==="operador"?`<div class="perms">${perms.map(([k,l])=>{
+            const on=o.permisosCustom?.[k]===true;
+            return `<button class="perm ${on?"on":""}" onclick="setPerm('${id}','${k}',${!on})">${on?"✓ ":""}${l}</button>`;
+          }).join("")}</div>`:""}
+      </div>`;
+    }).join("");
+}
+function togglePin(id){ pinOpen = pinOpen===id?null:id; render(); }
+function togglePerm(id){ permOpen = permOpen===id?null:id; render(); }
+
+/* ====== ACCIONES ====== */
+async function setTarifa(id,v){
+  try{ await patch(`zonas/${id}`,{tarifa:Number(v)}); zonas[id].tarifa=Number(v); }
+  catch(e){ mostrarError(e.message); }
+}
+async function setPin(id,v){
+  const p=String(v).replace(/\D/g,"").slice(0,4);
+  if(p.length!==4){ mostrarError("El PIN debe tener 4 dígitos"); return; }
+  try{ await patch(`operadores/${id}`,{pin:p}); operadores[id].pin=p; mostrarError(""); }
+  catch(e){ mostrarError(e.message); }
+}
+async function setPerm(id,k,val){
+  const nuevos={...(operadores[id].permisosCustom||{}),[k]:val};
+  try{ await patch(`operadores/${id}`,{permisosCustom:nuevos}); operadores[id].permisosCustom=nuevos; render(); }
+  catch(e){ mostrarError(e.message); }
+}
+async function borrar(rama,id){
+  if(!confirm("¿Borrar este registro?")) return;
+  try{ await del(`${rama}/${id}`);
+    ({comercios,zonas,cadetes,operadores}); 
+    if(rama==="comercios") delete comercios[id];
+    if(rama==="zonas") delete zonas[id];
+    if(rama==="cadetes") delete cadetes[id];
+    if(rama==="operadores") delete operadores[id];
+    render();
+  }catch(e){ mostrarError(e.message); }
+}
+
+/* ====== MODALES ====== */
+function cerrar(){ document.getElementById("modal").classList.add("hide"); }
+function abrir(tipo){
+  const m=document.getElementById("modal");
+  const zonasOpts = Object.values(zonas).map(z=>`<option>${esc(z.nombre)}</option>`).join("");
+  let html="";
+  if(tipo==="comercio") html=`<h3>Nuevo comercio</h3>
+    <label><span>Nombre</span><input id="f1" placeholder="Ej: Supermercado El Sol"></label>
+    <label><span>Tipo</span><input id="f2" placeholder="Ej: Supermercado"></label>
+    <label><span>Zona</span><select id="f3">${zonasOpts}</select></label>
+    <button class="btn block" onclick="guardarComercio()">Guardar comercio</button>`;
+  if(tipo==="zona") html=`<h3>Nueva zona</h3>
+    <label><span>Nombre</span><input id="f1" placeholder="Ej: Barrio Norte"></label>
+    <label><span>Tarifa ($)</span><input id="f2" type="number" value="1500"></label>
+    <button class="btn block" onclick="guardarZona()">Guardar zona</button>`;
+  if(tipo==="cadete") html=`<h3>Nuevo cadete</h3>
+    <label><span>Nombre</span><input id="f1" placeholder="Ej: Juan Pérez"></label>
+    <button class="btn block" onclick="guardarCadete()">Guardar cadete</button>`;
+  if(tipo==="operador") html=`<h3>Nueva cuenta</h3>
+    <label><span>Nombre completo</span><input id="f1" placeholder="Ej: Laura Méndez"></label>
+    <label><span>Rango</span><select id="f2">
+      <option value="operador">Operador base</option>
+      <option value="supervisor">Supervisor</option>
+      <option value="admin">Administrador</option></select></label>
+    <label><span>PIN (4 dígitos)</span><input id="f3" maxlength="4" inputmode="numeric" placeholder="0000"></label>
+    <button class="btn block" onclick="guardarOperador()">Crear cuenta</button>`;
+  m.innerHTML=`<div class="sheet"><div style="text-align:right"><button class="iconbtn" onclick="cerrar()">✕</button></div>${html}</div>`;
+  m.classList.remove("hide");
+}
+const val = id => document.getElementById(id).value.trim();
+
+async function guardarComercio(){
+  const d={nombre:val("f1"),tipo:val("f2"),ubicacion:val("f3")};
+  if(!d.nombre||!d.tipo) return alert("Completá nombre y tipo");
+  const id="c"+Date.now();
+  try{ await put(`comercios/${id}`,d); comercios[id]=d; cerrar(); render(); }catch(e){ mostrarError(e.message); }
+}
+async function guardarZona(){
+  const d={nombre:val("f1"),tarifa:Number(val("f2")),activa:true};
+  if(!d.nombre) return alert("Completá el nombre");
+  const id="z"+Date.now();
+  try{ await put(`zonas/${id}`,d); zonas[id]=d; cerrar(); render(); }catch(e){ mostrarError(e.message); }
+}
+async function guardarCadete(){
+  const d={nombre:val("f1"),estado:"disponible"};
+  if(!d.nombre) return alert("Completá el nombre");
+  const id="cd"+Date.now();
+  try{ await put(`cadetes/${id}`,d); cadetes[id]=d; cerrar(); render(); }catch(e){ mostrarError(e.message); }
+}
+async function guardarOperador(){
+  const p=val("f3").replace(/\D/g,"");
+  if(!val("f1")||p.length!==4) return alert("Completá nombre y PIN de 4 dígitos");
+  const d={nombre:val("f1"),rango:val("f2"),pin:p,activo:true};
+  const id="op"+Date.now();
+  try{ await put(`operadores/${id}`,d); operadores[id]=d; cerrar(); render(); }catch(e){ mostrarError(e.message); }
+}
+
+/* ====== INICIO ====== */
+armarPad(); pintarDots();
+</script>
+</body>
+</html>
