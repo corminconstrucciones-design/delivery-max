@@ -335,6 +335,10 @@ const EST={pendiente:["Pendiente de despacho","#b3730a"],asignado:["Cadete asign
 const MOTIVOS=["Domicilio cerrado / nadie atiende","Dirección incorrecta",
                "El cliente rechazó el pedido","El cliente no tenía el dinero","Otro motivo"];
 const montoDe=p=>Number(p.tarifaEnvio||0)+Number(p.recargo||0);
+const pagoCadeteDeZona=n=>{const z=Object.values(zonas).find(x=>x.nombre===n);
+  return z&&z.pagoCadete!=null?Number(z.pagoCadete):Math.round(tarifaDe(n)*0.6)};
+const pagoDe=p=>{const base=p.pagoCadete!=null?Number(p.pagoCadete):pagoCadeteDeZona(p.zona);
+  return base+Math.round(Number(p.recargo||0)*0.6)};
 function tagCobro(p){
   if(!p.cobrar) return '<span class="tag ok">sin cobro</span>';
   return '<span class="tag urg">COBRAR $'+(p.montoCobrar||0)+
@@ -561,7 +565,8 @@ async function guardarPedido(){
     comercioNombre:(comercios[me.refId]&&comercios[me.refId].nombre)||me.nombre,
     cobrar:cobra, montoCobrar:cobra?Number(val("n7")||0):0,
     envioIncluido:cobra?document.getElementById("n8").checked:true,
-    tarifaEnvio:tarifaDe(val("n3")), creado:Date.now(),hora:hora()};
+    tarifaEnvio:tarifaDe(val("n3")), pagoCadete:pagoCadeteDeZona(val("n3")),
+    creado:Date.now(),hora:hora()};
   if(!d.destinatario||!d.direccion) return alert("Completá cliente y dirección");
   if(cobra&&!d.montoCobrar) return alert("Indicá el monto a cobrar");
   const id="p"+Date.now();
@@ -825,11 +830,13 @@ function rango(){
   const h=liqHasta?new Date(liqHasta+"T23:59:59").getTime():Date.now()+864e5;
   return [d,h];
 }
-function entregadosEnRango(){
+function entregadosEnRango(tipo){
+  /* tipo: "comercio" (default) o "cadete" — cada circuito se liquida por separado */
+  const cual=tipo||liqTipo==="cadetes"?"cadete":"comercio";
   const [d,h]=rango();
   return Object.entries(pedidos).filter(x=>{
     const p=x[1];
-    if(p.liqId) return false;                       /* ya liquidado */
+    if(cual==="cadete"? p.liqCadeteId : p.liqId) return false;   /* ya liquidado en ese circuito */
     if(p.estado!=="entregado"&&p.estado!=="cerrado") return false;
     const t=p.finalizadoEn||p.entregadoEn||p.creado||0;
     return t>=d&&t<=h;
@@ -879,16 +886,22 @@ function vLiquidacion(){
   }
   const g={};
   list.forEach(x=>{const p=x[1];const k=p.cadeteId||"?";
-    g[k]=g[k]||{nombre:p.cadeteNombre||"—",cant:0,envios:0,cobrado:0};
-    g[k].cant++; g[k].envios+=montoDe(p);
+    g[k]=g[k]||{nombre:p.cadeteNombre||"—",cant:0,envios:0,cobrado:0,pago:0};
+    g[k].cant++; g[k].envios+=montoDe(p); g[k].pago+=pagoDe(p);
     if(p.cobrar) g[k].cobrado+=Number(p.montoCobrar||0);});
   const arr=Object.values(g).sort((a,b)=>b.cant-a.cant);
   if(!arr.length) return h+'<div class="empty">Sin entregas en el período.</div>';
-  h+=arr.map(c=>'<div class="card"><div class="flex"><div>'+
-    '<div class="name">'+esc(c.nombre)+'</div>'+
-    '<div class="meta">'+c.cant+' entregas · envíos por $'+c.envios+'</div>'+
-    '</div><div style="text-align:right"><div class="meta">rindió</div><b style="font-size:16px">$'+c.cobrado+'</b></div></div></div>').join("");
-  h+='<button class="btn block gris" onclick="exportarLiq()">Descargar CSV de esta liquidación</button>';
+  h+='<p class="hint">Tocá un cadete para ver el detalle e imprimir su liquidación de pago.</p>';
+  h+=Object.entries(g).sort((a,b)=>b[1].cant-a[1].cant).map(function(e){
+    const pago=e[1].pago||0;
+    return '<div class="card" style="padding:16px;cursor:pointer" onclick="detalleCadete(\''+e[0]+'\')">'+
+    '<div class="flex" style="align-items:flex-start;margin-bottom:8px">'+
+      '<div class="name" style="font-size:16px">'+esc(e[1].nombre)+'</div>'+
+      '<b style="font-size:18px;color:#15803d;white-space:nowrap">$'+pago+'</b></div>'+
+    '<div class="meta" style="line-height:1.8">'+e[1].cant+' entrega'+(e[1].cant!==1?"s":"")+
+      '<br>Facturado a comercios: $'+e[1].envios+
+      (e[1].cobrado?'<br>Dinero cobrado a clientes: $'+e[1].cobrado:'')+
+      '<br><b>A pagar al cadete: $'+pago+'</b> · ver detalle ›</div></div>';}).join("");
   return h;
 }
 
@@ -898,7 +911,7 @@ function periodoTexto(){
   return "Del "+f(liqDesde)+" al "+f(liqHasta||new Date().toISOString().slice(0,10));
 }
 function detalleComercio(cid){
-  const list=entregadosEnRango().filter(x=>x[1].comercioId===cid);
+  const list=entregadosEnRango("comercio").filter(x=>x[1].comercioId===cid);
   if(!list.length) return;
   const nom=list[0][1].comercioNombre||"—";
   const totalEnvios=list.reduce((a,x)=>a+montoDe(x[1]),0);
@@ -973,7 +986,7 @@ function rangoRapido(dias){
   render();
 }
 async function cerrarLiquidacion(cid,nro,total){
-  const list=entregadosEnRango().filter(x=>x[1].comercioId===cid);
+  const list=entregadosEnRango("comercio").filter(x=>x[1].comercioId===cid);
   if(!list.length) return;
   if(!confirm("¿Cerrar la liquidación "+nro+" por $"+total+"?\n\nEstas "+list.length+
               " entregas quedan liquidadas y no vuelven a aparecer."))return;
@@ -996,15 +1009,19 @@ function vHistorialLiq(){
     '<span class="name">Pendiente de cobro</span><b style="font-size:20px">$'+pend+'</b></div></div>';
   return h+list.map(function(x){const id=x[0],l=x[1];
     const cob=l.estado==="cobrada";
-    return '<div class="card" style="padding:14px 16px"><div class="flex" style="align-items:flex-start">'+
-      '<div style="min-width:0"><div class="name" style="font-size:15px">'+esc(l.comercioNombre)+'</div>'+
-      '<div style="margin:6px 0 4px">'+(cob?'<span class="tag ok">cobrada</span>':'<span class="tag prog">presentada — a cobrar</span>')+'</div>'+
-      '<div class="meta" style="line-height:1.6">'+esc(l.numero)+'<br>'+esc(l.periodo)+'<br>'+
-      l.cantidad+' entregas · '+esc(l.fecha)+'</div></div>'+
-      '<div style="text-align:right;white-space:nowrap"><b style="font-size:17px">$'+l.total+'</b>'+
-      (cob?'<div class="meta">'+esc(l.cobradaFecha||"")+'</div>'
-          :'<div><button class="btn verde" style="margin-top:8px" onclick="marcarCobrada(\''+id+'\')">Marcar cobrada</button></div>')+
-      '</div></div></div>';}).join("");
+    return '<div class="card" style="padding:16px">'+
+      '<div class="flex" style="align-items:flex-start;margin-bottom:10px">'+
+        '<div style="min-width:0"><div class="name" style="font-size:16px;line-height:1.4">'+
+          esc(l.comercioNombre)+'</div>'+
+          '<div class="meta" style="margin-top:4px">'+(l.tipo==="cadete"?"Pago a cadete":"Cobro a comercio")+'</div></div>'+
+        '<b style="font-size:19px;white-space:nowrap">$'+l.total+'</b></div>'+
+      '<div style="margin-bottom:10px">'+(cob?'<span class="tag ok">cobrada</span>':'<span class="tag prog">presentada — a cobrar</span>')+'</div>'+
+      '<div class="meta" style="line-height:1.9;margin-bottom:10px">'+
+        esc(l.numero)+'<br>'+esc(l.periodo)+'<br>'+
+        l.cantidad+' entregas · emitida '+esc(l.fecha)+
+        (cob?'<br>Cobrada: '+esc(l.cobradaFecha||""):'')+'</div>'+
+      (cob?'':'<button class="btn verde block" style="margin:0" onclick="marcarCobrada(\''+id+'\')">Marcar cobrada</button>')+
+      '</div>';}).join("");
 }
 async function marcarCobrada(id){
   if(!confirm("¿Confirmás que ya cobraste esta liquidación?"))return;
@@ -1012,8 +1029,90 @@ async function marcarCobrada(id){
   try{ await patch("liquidaciones/"+id,d); Object.assign(liquidaciones[id],d); render(); }
   catch(e){ mostrarError(e.message); }
 }
+function detalleCadete(cid){
+  const list=entregadosEnRango("cadete").filter(x=>x[1].cadeteId===cid);
+  if(!list.length) return;
+  const nom=list[0][1].cadeteNombre||"—";
+  const totalPago=list.reduce((a,x)=>a+pagoDe(x[1]),0);
+  const totalCobrado=list.reduce((a,x)=>a+(x[1].cobrar?Number(x[1].montoCobrar||0):0),0);
+  const porZona={};
+  list.forEach(x=>{const z=x[1].zona||"—";
+    porZona[z]=porZona[z]||{cant:0,tot:0};
+    porZona[z].cant++; porZona[z].tot+=pagoDe(x[1]);});
+  const nroLiq="C-"+new Date().toISOString().slice(0,10).replace(/-/g,"")+"-"+cid.slice(-4);
+
+  let h='<div style="background:#fff;color:#111;padding:18px;border:1px solid #e2e8f0;border-radius:10px">'+
+    '<div style="text-align:center;border-bottom:2px solid #f0a828;padding-bottom:10px;margin-bottom:14px">'+
+      '<div style="font-size:20px;font-weight:800;letter-spacing:.06em">DELIVERY MAX</div>'+
+      '<div style="font-size:11px;color:#555">Liquidación de pago a cadete</div></div>'+
+    '<table style="width:100%;font-size:12px;margin-bottom:14px"><tr>'+
+      '<td><b>Cadete:</b> '+esc(nom)+'</td><td style="text-align:right"><b>Liquidación:</b> '+nroLiq+'</td></tr>'+
+      '<tr><td><b>Período:</b> '+periodoTexto()+'</td>'+
+      '<td style="text-align:right"><b>Emitida:</b> '+new Date().toLocaleDateString("es-AR")+'</td></tr></table>'+
+    '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:14px">'+
+      '<tr style="background:#f8fafc"><th style="text-align:left;padding:6px;border:1px solid #e2e8f0">Zona</th>'+
+      '<th style="padding:6px;border:1px solid #e2e8f0">Entregas</th>'+
+      '<th style="text-align:right;padding:6px;border:1px solid #e2e8f0">A pagar</th></tr>'+
+      Object.entries(porZona).map(z=>'<tr><td style="padding:6px;border:1px solid #e2e8f0">'+esc(z[0])+'</td>'+
+        '<td style="text-align:center;padding:6px;border:1px solid #e2e8f0">'+z[1].cant+'</td>'+
+        '<td style="text-align:right;padding:6px;border:1px solid #e2e8f0">$'+z[1].tot+'</td></tr>').join("")+
+      '<tr style="background:#dcfce7;font-weight:800"><td colspan="2" style="padding:8px;border:1px solid #e2e8f0">TOTAL A PAGAR AL CADETE</td>'+
+      '<td style="text-align:right;padding:8px;border:1px solid #e2e8f0;font-size:15px">$'+totalPago+'</td></tr></table>'+
+    (totalCobrado?'<div style="font-size:11px;background:#fffbeb;border:1px solid #fcd34d;padding:8px;border-radius:6px;margin-bottom:14px">'+
+      '<b>Atención:</b> el cadete cobró <b>$'+totalCobrado+'</b> a clientes en el período. Ese dinero se rinde a cada comercio y no forma parte de este pago.</div>':'')+
+    '<div style="font-size:12px;font-weight:700;margin-bottom:6px">Detalle de entregas</div>'+
+    '<table style="width:100%;border-collapse:collapse;font-size:11px">'+
+      '<tr style="background:#f8fafc"><th style="text-align:left;padding:5px;border:1px solid #e2e8f0">Fecha</th>'+
+      '<th style="text-align:left;padding:5px;border:1px solid #e2e8f0">Comercio</th>'+
+      '<th style="text-align:left;padding:5px;border:1px solid #e2e8f0">Cliente</th>'+
+      '<th style="text-align:left;padding:5px;border:1px solid #e2e8f0">Zona</th>'+
+      '<th style="text-align:right;padding:5px;border:1px solid #e2e8f0">Pago</th></tr>'+
+      list.sort((a,b)=>(a[1].finalizadoEn||0)-(b[1].finalizadoEn||0)).map(function(x){const p=x[1];
+        return '<tr><td style="padding:5px;border:1px solid #e2e8f0">'+
+          (p.finalizadoEn?new Date(p.finalizadoEn).toLocaleDateString("es-AR"):"")+'</td>'+
+          '<td style="padding:5px;border:1px solid #e2e8f0">'+esc(p.comercioNombre||"")+'</td>'+
+          '<td style="padding:5px;border:1px solid #e2e8f0">'+esc(p.destinatario)+'</td>'+
+          '<td style="padding:5px;border:1px solid #e2e8f0">'+esc(p.zona)+'</td>'+
+          '<td style="text-align:right;padding:5px;border:1px solid #e2e8f0">$'+pagoDe(p)+'</td></tr>';}).join("")+
+    '</table>'+
+    '<table style="width:100%;margin-top:40px;font-size:11px"><tr>'+
+      '<td style="border-top:1px solid #333;text-align:center;padding-top:4px;width:45%">Delivery Max</td>'+
+      '<td style="width:10%"></td>'+
+      '<td style="border-top:1px solid #333;text-align:center;padding-top:4px;width:45%">Recibí conforme — '+esc(nom)+'</td></tr></table>'+
+    '</div>';
+  h+='<div class="noprint" style="display:flex;gap:8px;margin-top:12px">'+
+     '<button class="btn gris" style="flex:1;padding:12px" onclick="window.print()">Imprimir</button>'+
+     '<button class="btn gris" style="flex:1;padding:12px" onclick="exportarCadete(\''+cid+'\')">CSV</button></div>'+
+     '<button class="btn block noprint" onclick="cerrarLiqCadete(\''+cid+'\',\''+nroLiq+'\','+totalPago+')">'+
+     'Cerrar y registrar este pago</button>';
+  sheet(h);
+}
+async function cerrarLiqCadete(cid,nro,total){
+  const list=entregadosEnRango("cadete").filter(x=>x[1].cadeteId===cid);
+  if(!list.length) return;
+  if(!confirm("¿Registrar el pago "+nro+" por $"+total+" a este cadete?"))return;
+  const lid="liq"+Date.now();
+  const doc={numero:nro,tipo:"cadete",comercioId:cid,comercioNombre:list[0][1].cadeteNombre||"",
+    desde:liqDesde||"",hasta:liqHasta||"",periodo:periodoTexto(),cantidad:list.length,
+    total:total,estado:"presentada",creada:Date.now(),fecha:fecha(),
+    pedidoIds:list.map(x=>x[0]),emitidaPor:me.nombre||""};
+  try{
+    await put("liquidaciones/"+lid,doc); liquidaciones[lid]=doc;
+    for(const x of list){ await patch("pedidos/"+x[0],{liqCadeteId:lid}); pedidos[x[0]].liqCadeteId=lid; }
+    cerrar(); liqTipo="hist"; render();
+  }catch(e){ cerrar(); mostrarError("No se pudo cerrar: "+e.message); }
+}
+function exportarCadete(cid){
+  const list=entregadosEnRango("cadete").filter(x=>x[1].cadeteId===cid);
+  const f=[["Fecha","Comercio","Cliente","Zona","Pago cadete","Cobro","Monto cobrado"]];
+  list.forEach(x=>{const p=x[1];
+    f.push([p.finalizadoEn?new Date(p.finalizadoEn).toLocaleDateString("es-AR"):"",p.comercioNombre||"",
+      p.destinatario||"",p.zona||"",pagoDe(p),p.cobrar?"SI":"NO",p.montoCobrar||0]);});
+  f.push([]); f.push(["","","","TOTAL",list.reduce((a,x)=>a+pagoDe(x[1]),0),"",""]);
+  bajarCSV("pago-cadete.csv",f);
+}
 function exportarComercio(cid){
-  const list=entregadosEnRango().filter(x=>x[1].comercioId===cid);
+  const list=entregadosEnRango("comercio").filter(x=>x[1].comercioId===cid);
   const f=[["Fecha","Cliente","Telefono","Direccion","Zona","Cadete","Envio","Cobro","Monto cobrado"]];
   list.forEach(x=>{const p=x[1];
     f.push([p.entregadoEn?new Date(p.entregadoEn).toLocaleDateString("es-AR"):"",p.destinatario||"",
@@ -1095,12 +1194,23 @@ function vZonas(){
     (esSup()?'<button class="btn" onclick="abrir(\'zona\')">+ Nueva</button>':'')+'</div>'+
     (esAdmin()?'<p class="hint">Cambiá la tarifa y tocá afuera para guardar.</p>':'<p class="hint">Solo el Administrador modifica tarifas.</p>');
   return h+e.map(function(x){const id=x[0],z=x[1];
-    return '<div class="card"><div class="flex" style="align-items:center"><div class="name">'+esc(z.nombre)+'</div>'+
-      '<div style="display:flex;align-items:center;gap:8px"><span style="color:#94a3b8">$</span>'+
-      '<input class="tarifa" type="number" value="'+z.tarifa+'" '+(esAdmin()?"":"disabled")+
-      ' onchange="setTarifa(\''+id+'\',this.value)">'+
-      (esAdmin()?'<button class="del" onclick="borrar(\'zonas\',\''+id+'\')">🗑</button>':'')+
-      '</div></div></div>';}).join("");
+    const pc=z.pagoCadete!=null?z.pagoCadete:Math.round(Number(z.tarifa||0)*0.6);
+    const marg=Number(z.tarifa||0)-pc;
+    return '<div class="card" style="padding:14px 16px">'+
+      '<div class="name" style="margin-bottom:10px">'+esc(z.nombre)+'</div>'+
+      '<div class="flex" style="align-items:center;margin-bottom:6px">'+
+        '<span class="meta">Cobro al comercio</span>'+
+        '<span><span style="color:#94a3b8">$</span><input class="tarifa" type="number" value="'+z.tarifa+'" '+
+        (esAdmin()?"":"disabled")+' onchange="setTarifa(\''+id+'\',this.value)"></span></div>'+
+      '<div class="flex" style="align-items:center;margin-bottom:6px">'+
+        '<span class="meta">Pago al cadete</span>'+
+        '<span><span style="color:#94a3b8">$</span><input class="tarifa" type="number" value="'+pc+'" '+
+        (esAdmin()?"":"disabled")+' onchange="setPagoCadete(\''+id+'\',this.value)"></span></div>'+
+      '<div class="flex" style="border-top:1px solid rgba(0,0,0,.06);padding-top:8px">'+
+        '<span class="meta"><b>Margen Delivery Max</b></span>'+
+        '<b style="color:'+(marg>0?"#15803d":"#dc2626")+'">$'+marg+'</b></div>'+
+      (esAdmin()?'<div style="text-align:right"><button class="del" onclick="borrar(\'zonas\',\''+id+'\')">🗑 borrar zona</button></div>':'')+
+      '</div>';}).join("");
 }
 function vCadetes(){
   const e=Object.entries(cadetes);
@@ -1131,6 +1241,10 @@ function vUsuarios(){
       '<div class="meta">'+etiqueta(d.rol)+' · usuario: <b>'+esc(d.usuario||"—")+'</b></div></div>'+
       (esAdmin()&&u!==uid?'<button class="del" onclick="borrar(\'usuarios\',\''+u+'\')">🗑</button>':'')+
       '</div></div>';}).join("");
+}
+async function setPagoCadete(id,v){
+  try{ await patch("zonas/"+id,{pagoCadete:Number(v)}); zonas[id].pagoCadete=Number(v); render(); }
+  catch(e){ mostrarError(e.message); }
 }
 async function setTarifa(id,v){
   try{ await patch("zonas/"+id,{tarifa:Number(v)}); zonas[id].tarifa=Number(v); mostrarError(""); }
@@ -1265,7 +1379,8 @@ async function gPedidoMax(){
   const cid=val("f0");
   const d={comercioId:cid,comercioNombre:(comercios[cid]&&comercios[cid].nombre)||"",
     destinatario:val("f1"),direccion:val("f2"),zona:val("f3"),urgencia:val("f4"),
-    detalle:val("f5"),estado:"pendiente",creado:Date.now(),hora:hora()};
+    detalle:val("f5"),estado:"pendiente",tarifaEnvio:tarifaDe(val("f3")),
+    pagoCadete:pagoCadeteDeZona(val("f3")),creado:Date.now(),hora:hora()};
   if(!d.destinatario||!d.direccion)return alert("Completá destinatario y dirección");
   const id="p"+Date.now();
   try{ await put("pedidos/"+id,d); pedidos[id]=d; cerrar(); render(); }catch(e){ cerrar(); mostrarError(e.message); }
