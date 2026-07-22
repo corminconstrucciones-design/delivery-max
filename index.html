@@ -78,8 +78,8 @@
   <div class="box">
     <div class="brand">Delivery Max</div>
     <h1>Ingresar</h1>
-    <p class="sub">Usá el usuario y la clave que te dio la administración</p>
-    <label><span>Usuario</span><input id="u" autocomplete="username" autocapitalize="none" placeholder="ej: diego"></label>
+    <p class="sub">Ingresá con el usuario (o correo) y la clave que te dio la administración</p>
+    <label><span>Usuario</span><input id="u" autocomplete="username" autocapitalize="none" placeholder="usuario o correo"></label>
     <label><span>Clave</span><input id="p" type="password" autocomplete="current-password" placeholder="••••••••"></label>
     <button class="btn block" onclick="entrar()">Entrar</button>
     <div id="msg"></div>
@@ -109,6 +109,7 @@
 const API_KEY="AIzaSyA93I_0zQAYn9KpcUq-VUYFI3uHTsAHDMk";
 const DB="https://max-delivery1-default-rtdb.firebaseio.com";
 const DOMINIO="@deliverymax.app";
+const correoDe=u=>u.indexOf("@")>=0?u:u+DOMINIO;
 
 let tk=null, refresh=null, uid=null, me=null;
 let zonas={}, comercios={}, cadetes={}, usuarios={};
@@ -117,7 +118,7 @@ let tab="comercios";
 async function login(usuario,clave){
   const r=await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${API_KEY}`,
     {method:"POST",headers:{"Content-Type":"application/json"},
-     body:JSON.stringify({email:usuario+DOMINIO,password:clave,returnSecureToken:true})});
+     body:JSON.stringify({email:correoDe(usuario),password:clave,returnSecureToken:true})});
   const d=await r.json();
   if(!r.ok) throw new Error(traducir(d.error&&d.error.message));
   tk=d.idToken; refresh=d.refreshToken; uid=d.localId;
@@ -125,7 +126,7 @@ async function login(usuario,clave){
 async function crearCuenta(usuario,clave){
   const r=await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${API_KEY}`,
     {method:"POST",headers:{"Content-Type":"application/json"},
-     body:JSON.stringify({email:usuario+DOMINIO,password:clave,returnSecureToken:true})});
+     body:JSON.stringify({email:correoDe(usuario),password:clave,returnSecureToken:true})});
   const d=await r.json();
   if(!r.ok) throw new Error(traducir(d.error&&d.error.message));
   return d.localId;
@@ -140,7 +141,7 @@ async function renovar(){
 }
 function traducir(c){
   const m={EMAIL_NOT_FOUND:"Usuario inexistente",INVALID_PASSWORD:"Clave incorrecta",
-    INVALID_LOGIN_CREDENTIALS:"Usuario o clave incorrectos",EMAIL_EXISTS:"Ese usuario ya existe",
+    INVALID_LOGIN_CREDENTIALS:"Usuario o clave incorrectos",INVALID_EMAIL:"Usuario inválido",EMAIL_EXISTS:"Ese usuario ya existe",
     WEAK_PASSWORD:"La clave debe tener al menos 6 caracteres",
     TOO_MANY_ATTEMPTS_TRY_LATER:"Demasiados intentos. Probá en unos minutos."};
   return m[c]||c||"Error de conexión";
