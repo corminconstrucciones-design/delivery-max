@@ -461,11 +461,21 @@ function buscarCliente(campo){
   if(c.zona){ const sel=document.getElementById("n3");
     for(const o of sel.options) if(o.value===c.zona) sel.value=c.zona; verTarifa(); }
 }
+const COLURG={urgente:"#dc2626",programado:"#b3730a",normal:"#15803d"};
 function uo(id,t,d,col){
   const on=urgSel===id;
-  return '<div class="uo '+(on?"on":"")+'" style="'+(on?"color:"+col+";background:"+col+"14":"")+'" '+
-    'onclick="urgSel=\''+id+'\';render()"><div>'+t+'</div>'+
+  return '<div class="uo '+(on?"on":"")+'" id="uo_'+id+'" style="'+(on?"color:"+col+";background:"+col+"14":"")+'" '+
+    'onclick="setUrg(\''+id+'\')"><div>'+t+'</div>'+
     '<div style="font-size:9px;font-weight:400;opacity:.8;margin-top:2px">'+d+'</div></div>';
+}
+function setUrg(id){
+  urgSel=id;
+  for(const k in COLURG){
+    const el=document.getElementById("uo_"+k);
+    if(!el) continue;
+    if(k===id){ el.classList.add("on"); el.style.color=COLURG[k]; el.style.background=COLURG[k]+"14"; }
+    else{ el.classList.remove("on"); el.style.color=""; el.style.background=""; }
+  }
 }
 function verTarifa(){
   const z=document.getElementById("n3").value;
