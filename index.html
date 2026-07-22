@@ -150,7 +150,7 @@ const DOMINIO="@deliverymax.app";
 const correoDe=u=>u.indexOf("@")>=0?u:u+DOMINIO;
 
 let tk=null,refresh=null,uid=null,me=null;
-let zonas={},comercios={},cadetes={},usuarios={},pedidos={},planillas={},rutas={};
+let zonas={},comercios={},cadetes={},usuarios={},pedidos={},planillas={},rutas={},clientes={};
 let tab="", seleccion=[], verPlanilla=null;
 
 /* ============ AUTH ============ */
@@ -239,16 +239,24 @@ function mostrarError(m){
   if(!m){e.classList.add("hide");return}
   e.textContent=m; e.classList.remove("hide");
 }
+async function traer(p,reintentos){
+  reintentos=reintentos||2;
+  for(let i=0;i<=reintentos;i++){
+    try{ return await get(p); }
+    catch(e){ if(i===reintentos) throw e; await new Promise(r=>setTimeout(r,600)); }
+  }
+}
 async function cargarTodo(){
   mostrarError("");
   try{
-    const t=[get("zonas"),get("comercios"),get("cadetes"),get("pedidos"),get("planillas"),get("rutas")];
-    if(esSup()) t.push(get("usuarios"));
+    const t=[traer("zonas"),traer("comercios"),traer("cadetes"),traer("pedidos"),
+             traer("planillas"),traer("rutas"),traer("clientes")];
+    if(esSup()) t.push(traer("usuarios"));
     const r=await Promise.all(t);
     zonas=r[0]||{};comercios=r[1]||{};cadetes=r[2]||{};pedidos=r[3]||{};
-    planillas=r[4]||{};rutas=r[5]||{};usuarios=r[6]||{};
+    planillas=r[4]||{};rutas=r[5]||{};clientes=r[6]||{};usuarios=r[7]||{};
     render();
-  }catch(e){ mostrarError(e.message); }
+  }catch(e){ mostrarError("No se pudieron cargar los datos. Tocá ↻ para reintentar."); }
 }
 const esc=s=>String(s==null?"":s).replace(/[<>&"']/g,c=>({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;","'":"&#39;"}[c]));
 const hora=()=>new Date().toLocaleTimeString("es-AR",{hour:"2-digit",minute:"2-digit"});
@@ -259,6 +267,11 @@ const tarifaDe=n=>{const z=Object.values(zonas).find(x=>x.nombre===n);return z?z
 const URG={urgente:["Urgente","urg"],programado:["Programado","prog"],normal:["Normal","nor"]};
 const EST={pendiente:["Pendiente de despacho","#b3730a"],asignado:["Cadete asignado","#2563eb"],
            despachado:["Despachado — en camino","#7c3aed"],entregado:["Entregado","#15803d"]};
+function tagCobro(p){
+  if(!p.cobrar) return '<span class="tag ok">sin cobro</span>';
+  return '<span class="tag urg">COBRAR $'+(p.montoCobrar||0)+
+    (p.envioIncluido?' (envío incl.)':' + envío $'+(p.tarifaEnvio||0))+'</span>';
+}
 function tagUrg(u){const x=URG[u]||URG.normal;return '<span class="tag '+x[1]+'">'+x[0]+'</span>'}
 function lineaEstado(p){
   const e=EST[p.estado]||EST.pendiente;
@@ -280,14 +293,16 @@ function pedidosDelCadete(){
 function render(){
   let tabs;
   if(esComercio()) tabs=[["nuevo","Cargar pedido"],["mios","Mis pedidos"],["planillas","Planillas"]];
-  else if(esCadete()) tabs=[["ruta","Mi ruta"],["hechas","Entregadas"]];
-  else{ tabs=[["pedidos","Pedidos"],["comercios","Comercios"],["zonas","Zonas"],["cadetes","Cadetes"]];
+  else if(esCadete()) tabs=[["ruta","Mi ruta"],["cobros","Cobros"],["hechas","Entregadas"]];
+  else{ tabs=[["pedidos","Pedidos"],["liq","Liquidación"],["datos","Base de datos"],
+              ["comercios","Comercios"],["zonas","Zonas"],["cadetes","Cadetes"]];
         if(esSup()) tabs.push(["usuarios","Accesos"]); }
   document.getElementById("nav").innerHTML=tabs.map(t=>
     '<button class="tab '+(tab===t[0]?"on":"")+'" onclick="setTab(\''+t[0]+'\')">'+t[1]+'</button>').join("");
   const m=document.getElementById("main");
   const vistas={pedidos:vPedidosMax,comercios:vComercios,zonas:vZonas,cadetes:vCadetes,usuarios:vUsuarios,
-                nuevo:vNuevoPedido,mios:vMisPedidos,planillas:vPlanillas,ruta:vRuta,hechas:vHechas};
+                nuevo:vNuevoPedido,mios:vMisPedidos,planillas:vPlanillas,ruta:vRuta,hechas:vHechas,
+                cobros:vCobros,liq:vLiquidacion,datos:vDatos};
   m.innerHTML=(vistas[tab]||vPedidosMax)();
   pintarBarra();
 }
@@ -332,7 +347,9 @@ function vPedidosMax(){
         '<div class="meta" style="margin:0 0 3px">'+esc(p.comercioNombre)+'</div>'+
         '<div class="name">'+esc(p.destinatario)+'</div>'+
         '<div class="meta">'+esc(p.direccion)+' · <b>'+esc(p.zona)+'</b></div>'+
+        (p.telefono?'<div class="meta">Tel: '+esc(p.telefono)+'</div>':'')+
         (p.detalle?'<div class="meta">'+esc(p.detalle)+'</div>':'')+
+        '<div style="margin-top:6px">'+tagCobro(p)+'</div>'+
       '</div><div style="text-align:right">'+tagUrg(p.urgencia)+
         '<div class="meta">'+esc(p.hora||"")+'</div></div></div>'+
       lineaEstado(p)+'</div>';
@@ -396,7 +413,15 @@ async function borrarPedido(id){
 let urgSel="normal";
 function vNuevoPedido(){
   const zs=nomZonas().map(z=>'<option>'+esc(z)+'</option>').join("");
-  return '<label><span>Destinatario</span><input id="n1" placeholder="Nombre de quien recibe"></label>'+
+  const dl=Object.values(clientes).map(c=>
+    '<option value="'+esc(c.nombre)+'">'+esc(c.telefono||"")+' · '+esc(c.direccion||"")+'</option>').join("");
+  const dlt=Object.values(clientes).filter(c=>c.telefono).map(c=>
+    '<option value="'+esc(c.telefono)+'">'+esc(c.nombre)+'</option>').join("");
+  return '<datalist id="dlNom">'+dl+'</datalist><datalist id="dlTel">'+dlt+'</datalist>'+
+    '<label><span>Cliente (escribí y elegí de la lista)</span>'+
+      '<input id="n1" list="dlNom" autocomplete="off" oninput="buscarCliente(\'nombre\')" placeholder="Nombre y apellido"></label>'+
+    '<label><span>Teléfono</span>'+
+      '<input id="n5" list="dlTel" inputmode="tel" autocomplete="off" oninput="buscarCliente(\'telefono\')" placeholder="Ej: 264 555 0111"></label>'+
     '<label><span>Dirección de entrega</span><input id="n2" placeholder="Calle y número"></label>'+
     '<label><span>Zona</span><select id="n3" onchange="verTarifa()">'+zs+'</select></label>'+
     '<p class="hint" id="tar"></p>'+
@@ -406,8 +431,35 @@ function vNuevoPedido(){
       uo("programado","Programado","Con horario","#b3730a")+
       uo("normal","Normal","Puede agruparse","#15803d")+
     '</div>'+
+    '<div class="card" style="background:#fffbeb;border-color:#fcd34d">'+
+      '<label style="display:flex;align-items:center;gap:10px;margin:0">'+
+        '<input type="checkbox" id="n6" style="width:20px;height:20px" onchange="verCobro()">'+
+        '<span style="margin:0;text-transform:none;font-size:14px;color:#0f172a;letter-spacing:0">El cadete debe cobrar</span></label>'+
+      '<div id="boxCobro" class="hide" style="margin-top:12px">'+
+        '<label><span>Monto a cobrar al cliente ($)</span><input id="n7" type="number" inputmode="numeric" placeholder="0"></label>'+
+        '<label style="display:flex;align-items:center;gap:10px;margin:0">'+
+          '<input type="checkbox" id="n8" style="width:20px;height:20px" checked>'+
+          '<span style="margin:0;text-transform:none;font-size:13px;color:#0f172a;letter-spacing:0">El envío está incluido en ese monto</span></label>'+
+        '<p class="hint" style="margin:8px 0 0">Si no está incluido, el cliente le paga el envío aparte al cadete.</p>'+
+      '</div></div>'+
     '<label><span>Detalle (opcional)</span><textarea id="n4" rows="3" placeholder="Ej: 2 cajas, timbre 3B, horario si es programado"></textarea></label>'+
     '<button class="btn block" onclick="guardarPedido()">Cargar pedido</button>';
+}
+function verCobro(){
+  document.getElementById("boxCobro").classList.toggle("hide",!document.getElementById("n6").checked);
+}
+function buscarCliente(campo){
+  const v=(campo==="nombre"?val("n1"):val("n5")).toLowerCase();
+  if(v.length<3) return;
+  const c=Object.values(clientes).find(x=>
+    campo==="nombre" ? (x.nombre||"").toLowerCase()===v
+                     : (x.telefono||"").replace(/\s/g,"")===v.replace(/\s/g,""));
+  if(!c) return;
+  if(campo==="telefono"&&!val("n1")) document.getElementById("n1").value=c.nombre||"";
+  if(campo==="nombre"&&!val("n5")) document.getElementById("n5").value=c.telefono||"";
+  if(!val("n2")&&c.direccion) document.getElementById("n2").value=c.direccion;
+  if(c.zona){ const sel=document.getElementById("n3");
+    for(const o of sel.options) if(o.value===c.zona) sel.value=c.zona; verTarifa(); }
 }
 function uo(id,t,d,col){
   const on=urgSel===id;
@@ -420,14 +472,29 @@ function verTarifa(){
   document.getElementById("tar").textContent="Tarifa de la zona: $"+tarifaDe(z);
 }
 async function guardarPedido(){
-  const d={destinatario:val("n1"),direccion:val("n2"),zona:val("n3"),urgencia:urgSel,
-    detalle:val("n4"),estado:"pendiente",comercioId:me.refId,
+  const cobra=document.getElementById("n6").checked;
+  const d={destinatario:val("n1"),telefono:val("n5"),direccion:val("n2"),zona:val("n3"),
+    urgencia:urgSel,detalle:val("n4"),estado:"pendiente",comercioId:me.refId,
     comercioNombre:(comercios[me.refId]&&comercios[me.refId].nombre)||me.nombre,
-    creado:Date.now(),hora:hora()};
-  if(!d.destinatario||!d.direccion) return alert("Completá destinatario y dirección");
+    cobrar:cobra, montoCobrar:cobra?Number(val("n7")||0):0,
+    envioIncluido:cobra?document.getElementById("n8").checked:true,
+    tarifaEnvio:tarifaDe(val("n3")), creado:Date.now(),hora:hora()};
+  if(!d.destinatario||!d.direccion) return alert("Completá cliente y dirección");
+  if(cobra&&!d.montoCobrar) return alert("Indicá el monto a cobrar");
   const id="p"+Date.now();
-  try{ await put("pedidos/"+id,d); pedidos[id]=d; urgSel="normal"; tab="mios"; render(); }
-  catch(e){ mostrarError(e.message); }
+  try{
+    await put("pedidos/"+id,d); pedidos[id]=d;
+    await guardarCliente(d);
+    urgSel="normal"; tab="mios"; render();
+  }catch(e){ mostrarError(e.message); }
+}
+async function guardarCliente(d){
+  const clave=(d.telefono||d.destinatario).replace(/[^0-9a-zA-Z]/g,"").toLowerCase();
+  if(!clave) return;
+  const cid="cl"+clave;
+  const c={nombre:d.destinatario,telefono:d.telefono||"",direccion:d.direccion,zona:d.zona,
+    ultimo:Date.now(), comercioId:d.comercioId};
+  try{ await put("clientes/"+cid,c); clientes[cid]=c; }catch(e){}
 }
 function vMisPedidos(){
   const list=misPedidos();
@@ -448,7 +515,9 @@ function vMisPedidos(){
       '<div class="flex"><div>'+
         '<div class="name">'+(selec?(sel?"☑ ":"☐ "):"")+esc(p.destinatario)+'</div>'+
         '<div class="meta">'+esc(p.direccion)+' · <b>'+esc(p.zona)+'</b></div>'+
+        (p.telefono?'<div class="meta">Tel: '+esc(p.telefono)+'</div>':'')+
         (p.detalle?'<div class="meta">'+esc(p.detalle)+'</div>':'')+
+        '<div style="margin-top:6px">'+tagCobro(p)+'</div>'+
       '</div><div style="text-align:right">'+tagUrg(p.urgencia)+
       '<div class="meta">'+esc(p.hora||"")+'</div></div></div>'+lineaEstado(p)+'</div>';
   }).join("");
@@ -471,14 +540,26 @@ function abrirEditar(id){
   const p=pedidos[id];
   const zs=nomZonas().map(z=>'<option '+(z===p.zona?"selected":"")+'>'+esc(z)+'</option>').join("");
   sheet('<h3>Editar pedido</h3>'+
-    '<label><span>Destinatario</span><input id="e1" value="'+esc(p.destinatario)+'"></label>'+
+    '<label><span>Cliente</span><input id="e1" value="'+esc(p.destinatario)+'"></label>'+
+    '<label><span>Teléfono</span><input id="e5" value="'+esc(p.telefono||"")+'"></label>'+
     '<label><span>Dirección</span><input id="e2" value="'+esc(p.direccion)+'"></label>'+
     '<label><span>Zona</span><select id="e3">'+zs+'</select></label>'+
+    '<label style="display:flex;align-items:center;gap:10px">'+
+      '<input type="checkbox" id="e6" style="width:20px;height:20px" '+(p.cobrar?"checked":"")+'>'+
+      '<span style="margin:0;text-transform:none;font-size:14px;color:#0f172a;letter-spacing:0">El cadete debe cobrar</span></label>'+
+    '<label><span>Monto a cobrar ($)</span><input id="e7" type="number" value="'+(p.montoCobrar||0)+'"></label>'+
+    '<label style="display:flex;align-items:center;gap:10px">'+
+      '<input type="checkbox" id="e8" style="width:20px;height:20px" '+(p.envioIncluido!==false?"checked":"")+'>'+
+      '<span style="margin:0;text-transform:none;font-size:13px;color:#0f172a;letter-spacing:0">Envío incluido en el monto</span></label>'+
     '<label><span>Detalle</span><textarea id="e4" rows="2">'+esc(p.detalle||"")+'</textarea></label>'+
     '<button class="btn block" onclick="guardarEdit(\''+id+'\')">Guardar cambios</button>');
 }
 async function guardarEdit(id){
-  const d={destinatario:val("e1"),direccion:val("e2"),zona:val("e3"),detalle:val("e4")};
+  const cob=document.getElementById("e6").checked;
+  const d={destinatario:val("e1"),telefono:val("e5"),direccion:val("e2"),zona:val("e3"),detalle:val("e4"),
+    cobrar:cob,montoCobrar:cob?Number(val("e7")||0):0,
+    envioIncluido:cob?document.getElementById("e8").checked:true,
+    tarifaEnvio:tarifaDe(val("e3"))};
   try{ await patch("pedidos/"+id,d); Object.assign(pedidos[id],d); cerrar(); render(); }
   catch(e){ cerrar(); mostrarError(e.message); }
 }
@@ -496,12 +577,27 @@ function vPlanillas(){
 }
 
 /* ---------- PANEL CADETE ---------- */
+function interruptor(){
+  const yo=cadetes[me.refId]||{};
+  const act=yo.activo!==false;
+  return '<div class="card" style="background:'+(act?"#dcfce7":"#f1f5f9")+';border-color:'+(act?"#86efac":"#cbd5e1")+'">'+
+    '<div class="flex" style="align-items:center"><div>'+
+      '<div class="name">'+(act?"Estás ACTIVO":"Estás INACTIVO")+'</div>'+
+      '<div class="meta">'+(act?"Max puede asignarte entregas":"No vas a recibir nuevas entregas")+'</div></div>'+
+    '<button class="btn '+(act?"gris":"verde")+'" onclick="cambiarActivo('+(!act)+')">'+
+      (act?"Ponerme inactivo":"Ponerme activo")+'</button></div></div>';
+}
+async function cambiarActivo(v){
+  try{ await patch("cadetes/"+me.refId,{activo:v});
+    if(!cadetes[me.refId])cadetes[me.refId]={}; cadetes[me.refId].activo=v; render();
+  }catch(e){ mostrarError(e.message); }
+}
 function vRuta(){
   const list=pedidosDelCadete();
-  if(!list.length) return '<div class="empty">No tenés entregas asignadas ahora.</div>';
+  if(!list.length) return interruptor()+'<div class="empty">No tenés entregas asignadas ahora.</div>';
   const zonas1=new Set(list.map(x=>x[1].zona));
   const coms=new Set(list.map(x=>x[1].comercioNombre));
-  let h='<p class="hint">'+list.length+' entregas · '+coms.size+' comercio'+(coms.size!==1?"s":"")+
+  let h=interruptor()+'<p class="hint">'+list.length+' entregas · '+coms.size+' comercio'+(coms.size!==1?"s":"")+
         ' · '+Array.from(zonas1).join(", ")+'</p>';
   h+=list.map(function(x,i){
     const id=x[0],p=x[1];
@@ -509,11 +605,46 @@ function vRuta(){
       '<div class="meta" style="margin:0 0 3px">'+(i+1)+'. '+esc(p.comercioNombre)+'</div>'+
       '<div class="name">'+esc(p.destinatario)+'</div>'+
       '<div class="meta">'+esc(p.direccion)+' · <b>'+esc(p.zona)+'</b></div>'+
+      (p.telefono?'<div class="meta">Tel: <a href="tel:'+esc(p.telefono)+'">'+esc(p.telefono)+'</a></div>':'')+
       (p.detalle?'<div class="meta">'+esc(p.detalle)+'</div>':'')+
+      '<div style="margin-top:6px">'+tagCobro(p)+'</div>'+
       '</div><div>'+tagUrg(p.urgencia)+'</div></div>'+
-      '<button class="btn verde block" onclick="confirmarEntrega(\''+id+'\')">Marcar entregado</button></div>';
+      (p.estado==="despachado"
+        ? '<button class="btn verde block" onclick="confirmarEntrega(\''+id+'\')">Marcar entregado</button>'
+        : '<p class="hint" style="margin:10px 0 0;color:#b3730a">Esperando que el comercio genere el despacho. No podés marcar la entrega todavía.</p>')+
+      '</div>';
   }).join("");
   h+='<p class="hint" style="margin-top:16px">Al terminar, volvé a cada comercio a rendir con el tique firmado.</p>';
+  return h;
+}
+function vCobros(){
+  const mios=Object.entries(pedidos).filter(x=>x[1].cadeteId===me.refId);
+  const hoy=new Date(); hoy.setHours(0,0,0,0);
+  const entregados=mios.filter(x=>x[1].estado==="entregado"&&(x[1].entregadoEn||0)>=hoy.getTime());
+  const pendientes=mios.filter(x=>x[1].estado!=="entregado");
+  const cobrado=entregados.reduce((a,x)=>a+(x[1].cobrar?Number(x[1].montoCobrar||0):0),0);
+  const porCobrar=pendientes.reduce((a,x)=>a+(x[1].cobrar?Number(x[1].montoCobrar||0):0),0);
+  const enviosHechos=entregados.reduce((a,x)=>a+Number(x[1].tarifaEnvio||0),0);
+  let h='<div class="card" style="background:#ecfdf5;border-color:#86efac">'+
+    '<div class="flex"><span class="meta">Ya cobrado (para rendir)</span><b style="font-size:18px">$'+cobrado+'</b></div>'+
+    '<div class="flex" style="margin-top:6px"><span class="meta">Envíos entregados hoy</span><b>$'+enviosHechos+'</b></div></div>'+
+   '<div class="card" style="background:#fffbeb;border-color:#fcd34d">'+
+    '<div class="flex"><span class="meta">Falta cobrar (pendientes)</span><b style="font-size:18px">$'+porCobrar+'</b></div>'+
+    '<div class="flex" style="margin-top:6px"><span class="meta">Entregas pendientes</span><b>'+pendientes.length+'</b></div></div>';
+  h+='<p class="hint" style="margin-top:14px">Por cobrar</p>';
+  const pc=pendientes.filter(x=>x[1].cobrar);
+  h+= pc.length? pc.map(x=>'<div class="card"><div class="flex"><div>'+
+        '<div class="name">'+esc(x[1].destinatario)+'</div>'+
+        '<div class="meta">'+esc(x[1].comercioNombre)+' · '+esc(x[1].zona)+'</div></div>'+
+        '<b>$'+(x[1].montoCobrar||0)+'</b></div></div>').join("")
+      : '<p class="meta">Nada pendiente de cobro.</p>';
+  h+='<p class="hint" style="margin-top:14px">Cobrado hoy</p>';
+  const ec=entregados.filter(x=>x[1].cobrar);
+  h+= ec.length? ec.map(x=>'<div class="card"><div class="flex"><div>'+
+        '<div class="name">'+esc(x[1].destinatario)+'</div>'+
+        '<div class="meta">'+esc(x[1].comercioNombre)+' · '+esc(x[1].horaEntrega||"")+'</div></div>'+
+        '<b style="color:#15803d">$'+(x[1].montoCobrar||0)+'</b></div></div>').join("")
+      : '<p class="meta">Todavía no cobraste nada hoy.</p>';
   return h;
 }
 function vHechas(){
@@ -534,9 +665,116 @@ function confirmarEntrega(id){
     '<button class="btn verde" style="flex:1;padding:12px" onclick="marcarEntregado(\''+id+'\')">Sí, entregado</button></div>');
 }
 async function marcarEntregado(id){
+  if(pedidos[id].estado!=="despachado"){
+    cerrar(); mostrarError("No podés marcar la entrega: el comercio todavía no generó el despacho de este pedido.");
+    return;
+  }
   const d={estado:"entregado",horaEntrega:hora(),entregadoEn:Date.now()};
   try{ await patch("pedidos/"+id,d); Object.assign(pedidos[id],d); cerrar(); render(); }
   catch(e){ cerrar(); mostrarError(e.message); }
+}
+
+/* ---------- LIQUIDACIÓN ---------- */
+let liqTipo="comercios", liqDesde="", liqHasta="";
+function rango(){
+  const d=liqDesde?new Date(liqDesde+"T00:00:00").getTime():0;
+  const h=liqHasta?new Date(liqHasta+"T23:59:59").getTime():Date.now()+864e5;
+  return [d,h];
+}
+function entregadosEnRango(){
+  const [d,h]=rango();
+  return Object.entries(pedidos).filter(x=>x[1].estado==="entregado"&&
+    (x[1].entregadoEn||x[1].creado||0)>=d&&(x[1].entregadoEn||x[1].creado||0)<=h);
+}
+function vLiquidacion(){
+  const list=entregadosEnRango();
+  let h='<div style="display:flex;gap:6px;margin-bottom:12px">'+
+    '<button class="tab '+(liqTipo==="comercios"?"on":"")+'" onclick="liqTipo=\'comercios\';render()">Comercios</button>'+
+    '<button class="tab '+(liqTipo==="cadetes"?"on":"")+'" onclick="liqTipo=\'cadetes\';render()">Cadetes</button></div>'+
+    '<div style="display:flex;gap:8px;margin-bottom:12px">'+
+    '<label style="flex:1;margin:0"><span>Desde</span><input type="date" value="'+liqDesde+'" onchange="liqDesde=this.value;render()"></label>'+
+    '<label style="flex:1;margin:0"><span>Hasta</span><input type="date" value="'+liqHasta+'" onchange="liqHasta=this.value;render()"></label></div>'+
+    '<p class="hint">'+list.length+' entregas en el período. '+
+    (liqDesde||liqHasta?'':'Sin filtro = todo el historial.')+'</p>';
+
+  if(liqTipo==="comercios"){
+    const g={};
+    list.forEach(x=>{const p=x[1];const k=p.comercioId||"?";
+      g[k]=g[k]||{nombre:p.comercioNombre||"—",cant:0,envios:0,cobrado:0};
+      g[k].cant++; g[k].envios+=Number(p.tarifaEnvio||0);
+      if(p.cobrar) g[k].cobrado+=Number(p.montoCobrar||0);});
+    const arr=Object.values(g).sort((a,b)=>b.envios-a.envios);
+    if(!arr.length) return h+'<div class="empty">Sin entregas en el período.</div>';
+    const tot=arr.reduce((a,x)=>a+x.envios,0);
+    h+='<div class="card" style="background:#fffbeb;border-color:#fcd34d"><div class="flex">'+
+       '<span class="name">Total a facturar</span><b style="font-size:20px">$'+tot+'</b></div></div>';
+    h+=arr.map(c=>'<div class="card"><div class="flex"><div>'+
+      '<div class="name">'+esc(c.nombre)+'</div>'+
+      '<div class="meta">'+c.cant+' entregas</div>'+
+      (c.cobrado?'<div class="meta">Cobró para el comercio: $'+c.cobrado+'</div>':'')+
+      '</div><b style="font-size:16px">$'+c.envios+'</b></div></div>').join("");
+    h+='<button class="btn block gris" onclick="exportarLiq()">Descargar CSV de esta liquidación</button>';
+    return h;
+  }
+  const g={};
+  list.forEach(x=>{const p=x[1];const k=p.cadeteId||"?";
+    g[k]=g[k]||{nombre:p.cadeteNombre||"—",cant:0,envios:0,cobrado:0};
+    g[k].cant++; g[k].envios+=Number(p.tarifaEnvio||0);
+    if(p.cobrar) g[k].cobrado+=Number(p.montoCobrar||0);});
+  const arr=Object.values(g).sort((a,b)=>b.cant-a.cant);
+  if(!arr.length) return h+'<div class="empty">Sin entregas en el período.</div>';
+  h+=arr.map(c=>'<div class="card"><div class="flex"><div>'+
+    '<div class="name">'+esc(c.nombre)+'</div>'+
+    '<div class="meta">'+c.cant+' entregas · envíos por $'+c.envios+'</div>'+
+    '</div><div style="text-align:right"><div class="meta">rindió</div><b style="font-size:16px">$'+c.cobrado+'</b></div></div></div>').join("");
+  h+='<button class="btn block gris" onclick="exportarLiq()">Descargar CSV de esta liquidación</button>';
+  return h;
+}
+
+/* ---------- BASE DE DATOS / EXPORTACIÓN ---------- */
+function vDatos(){
+  const total=Object.keys(pedidos).length;
+  const cli=Object.keys(clientes).length;
+  return '<p class="hint">Base única con todos los pedidos de todos los comercios, con datos del cliente, '+
+    'zona, cadete, cobros y tiempos. Exportable a CSV para abrir en Excel.</p>'+
+    '<div class="card"><div class="flex"><span class="name">Pedidos registrados</span><b style="font-size:18px">'+total+'</b></div></div>'+
+    '<div class="card"><div class="flex"><span class="name">Clientes únicos</span><b style="font-size:18px">'+cli+'</b></div></div>'+
+    '<button class="btn block" onclick="exportarPedidos()">Descargar CSV de pedidos</button>'+
+    '<button class="btn block gris" onclick="exportarClientes()">Descargar CSV de clientes</button>';
+}
+function bajarCSV(nombre,filas){
+  const csv=filas.map(f=>f.map(c=>{
+    const t=String(c==null?"":c).replace(/"/g,'""');
+    return /[";,\n]/.test(t)?'"'+t+'"':t;
+  }).join(";")).join("\r\n");
+  const blob=new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob); a.download=nombre; a.click();
+}
+function exportarPedidos(){
+  const f=[["Fecha","Hora","Comercio","Cliente","Telefono","Direccion","Zona","Urgencia",
+            "Detalle","Estado","Cadete","Cobrar","Monto","Envio incluido","Tarifa envio","Hora entrega"]];
+  Object.values(pedidos).sort((a,b)=>(a.creado||0)-(b.creado||0)).forEach(p=>{
+    f.push([p.creado?new Date(p.creado).toLocaleDateString("es-AR"):"",p.hora||"",p.comercioNombre||"",
+      p.destinatario||"",p.telefono||"",p.direccion||"",p.zona||"",p.urgencia||"",p.detalle||"",
+      p.estado||"",p.cadeteNombre||"",p.cobrar?"SI":"NO",p.montoCobrar||0,
+      p.cobrar?(p.envioIncluido?"SI":"NO"):"",p.tarifaEnvio||0,p.horaEntrega||""]);
+  });
+  bajarCSV("delivery-max-pedidos.csv",f);
+}
+function exportarClientes(){
+  const f=[["Cliente","Telefono","Direccion","Zona","Ultimo pedido"]];
+  Object.values(clientes).forEach(c=>f.push([c.nombre||"",c.telefono||"",c.direccion||"",c.zona||"",
+    c.ultimo?new Date(c.ultimo).toLocaleDateString("es-AR"):""]));
+  bajarCSV("delivery-max-clientes.csv",f);
+}
+function exportarLiq(){
+  const list=entregadosEnRango();
+  const f=[["Fecha","Comercio","Cliente","Zona","Cadete","Tarifa envio","Cobro","Monto"]];
+  list.forEach(x=>{const p=x[1];
+    f.push([p.entregadoEn?new Date(p.entregadoEn).toLocaleDateString("es-AR"):"",p.comercioNombre||"",
+      p.destinatario||"",p.zona||"",p.cadeteNombre||"",p.tarifaEnvio||0,p.cobrar?"SI":"NO",p.montoCobrar||0]);});
+  bajarCSV("liquidacion-"+liqTipo+".csv",f);
 }
 
 /* ---------- ABM (igual que antes) ---------- */
@@ -578,9 +816,11 @@ function vCadetes(){
   if(!e.length) return h+'<div class="empty">Sin cadetes todavía.</div>';
   return h+e.map(function(x){const id=x[0],c=x[1],cta=cuentaDe("cadete",id);
     const enRuta=Object.values(pedidos).some(p=>p.cadeteId===id&&p.estado!=="entregado");
+    const inac=c.activo===false;
     return '<div class="card"><div class="flex"><div>'+
       '<div class="name">'+esc(c.nombre)+'</div>'+
-      '<div class="meta" style="color:'+(enRuta?"#7c3aed":"#15803d")+'">● '+(enRuta?"En ruta":"Disponible")+'</div>'+
+      '<div class="meta" style="color:'+(inac?"#64748b":(enRuta?"#7c3aed":"#15803d"))+'">● '+
+        (inac?"Inactivo (no recibe entregas)":(enRuta?"En ruta":"Disponible"))+'</div>'+
       '<div style="margin-top:6px">'+(cta?'<span class="tag ok">acceso: '+esc(cta)+'</span>':'<span class="tag">sin acceso</span>')+'</div>'+
       '</div><div style="text-align:right;white-space:nowrap">'+
       (esSup()&&!cta?'<button class="pill" onclick="abrirAcceso(\'cadete\',\''+id+'\',\''+esc(c.nombre)+'\')">Dar acceso</button>':'')+
@@ -650,9 +890,12 @@ function abrir(t){
       esc(pedidos[seleccion[0]].zona)+'</p><div style="margin-top:12px">'+
       libres.map(c=>{
         const enRuta=Object.values(pedidos).some(p=>p.cadeteId===c[0]&&p.estado!=="entregado");
-        return '<button class="btn block gris" style="margin-bottom:8px;text-align:left" '+
-          'onclick="asignar(\''+c[0]+'\',\''+esc(c[1].nombre)+'\')">'+esc(c[1].nombre)+
-          ' <span class="tag '+(enRuta?"vio":"ok")+'" style="float:right">'+(enRuta?"en ruta":"libre")+'</span></button>';
+        const inactivo=c[1].activo===false;
+        return '<button class="btn block gris" style="margin-bottom:8px;text-align:left'+
+          (inactivo?';opacity:.45':'')+'" '+(inactivo?'disabled':'')+
+          ' onclick="asignar(\''+c[0]+'\',\''+esc(c[1].nombre)+'\')">'+esc(c[1].nombre)+
+          ' <span class="tag '+(inactivo?"":(enRuta?"vio":"ok"))+'" style="float:right">'+
+          (inactivo?"inactivo":(enRuta?"en ruta":"libre"))+'</span></button>';
       }).join("")+'</div>');
   }
   if(t==="despacho"){
@@ -783,25 +1026,30 @@ function mostrarTique(plid){
 function abrirConciliar(plid){
   const pl=planillas[plid];
   const items=pl.pedidoIds.map(id=>[id,pedidos[id]]).filter(x=>x[1]);
+  const faltan=items.filter(x=>x[1].estado!=="entregado");
+  if(faltan.length){
+    sheet('<h3>Todavía no se puede rendir</h3>'+
+      '<p class="hint">El cadete aún no marcó como entregados estos pedidos:</p>'+
+      faltan.map(x=>'<div class="meta">• '+esc(x[1].destinatario)+'</div>').join("")+
+      '<p class="hint" style="margin-top:12px">Cuando el cadete los marque desde su panel, vas a poder cerrar la rendición.</p>'+
+      '<button class="btn block gris" onclick="cerrar()">Entendido</button>');
+    return;
+  }
+  const totalCobrado=items.reduce((a,x)=>a+(x[1].cobrar?Number(x[1].montoCobrar||0):0),0);
+  const totalEnvios=items.reduce((a,x)=>a+Number(x[1].tarifaEnvio||0),0);
   sheet('<h3>Rendición de '+esc(pl.numero)+'</h3>'+
-    '<p class="hint">Marcá lo que el cadete entregó, cotejando con tu tique firmado.</p>'+
-    items.map(x=>'<label style="display:flex;gap:10px;align-items:center;margin-bottom:10px">'+
-      '<input type="checkbox" id="k'+x[0]+'" checked style="width:20px;height:20px">'+
-      '<span style="font-size:14px">'+esc(x[1].destinatario)+'</span></label>').join("")+
+    '<p class="hint">Todos los pedidos figuran entregados. Cotejá con tu tique firmado y cerrá la rendición.</p>'+
+    items.map(x=>'<div class="meta">✓ '+esc(x[1].destinatario)+
+      (x[1].cobrar?' — cobró $'+(x[1].montoCobrar||0):'')+'</div>').join("")+
+    '<div class="card" style="margin-top:12px;background:#f8fafc">'+
+      '<div class="flex"><span class="meta">Dinero que rinde el cadete</span><b>$'+totalCobrado+'</b></div>'+
+      '<div class="flex"><span class="meta">Envíos de esta planilla</span><b>$'+totalEnvios+'</b></div></div>'+
     '<button class="btn block" onclick="gConciliar(\''+plid+'\')">Confirmar rendición</button>');
 }
 async function gConciliar(plid){
-  const pl=planillas[plid];
   try{
-    for(const id of pl.pedidoIds){
-      const chk=document.getElementById("k"+id);
-      if(!chk) continue;
-      const d=chk.checked?{estado:"entregado",horaEntrega:hora(),entregadoEn:Date.now()}
-                         :{estado:"pendiente",planillaId:null,cadeteId:null,cadeteNombre:null};
-      await patch("pedidos/"+id,d); Object.assign(pedidos[id],d);
-    }
-    await patch("planillas/"+plid,{conciliada:true}); planillas[plid].conciliada=true;
-    cerrar(); render();
+    await patch("planillas/"+plid,{conciliada:true,conciliadaEn:Date.now()});
+    planillas[plid].conciliada=true; cerrar(); render();
   }catch(e){ cerrar(); mostrarError(e.message); }
 }
 
